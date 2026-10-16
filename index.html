@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Sleep">
+<meta name="theme-color" content="#0b1020">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon.png">
+<title>Sleep Calculator</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;min-height:100vh;font-family:-apple-system,system-ui,sans-serif;background:radial-gradient(circle at 50% 30%,#1a2140,#0b1020 70%);color:#e8ecf8;display:flex;flex-direction:column;align-items:center;padding:calc(env(safe-area-inset-top) + 16px) 16px 30px;user-select:none;-webkit-user-select:none}
+.top{display:flex;gap:40px;text-align:center}
+.lbl{font-size:13px;color:#8a93b3}
+.big{font-size:30px;font-weight:600;font-variant-numeric:tabular-nums}
+svg{width:min(92vw,400px);height:auto;touch-action:none;margin:14px 0 4px}
+.sleep{font-size:56px;font-weight:800;font-variant-numeric:tabular-nums}
+.ok{color:#3ddc84}.mid{color:#ffa53d}.short{color:#ff5a5f}
+.status{font-size:18px;font-weight:600;margin-bottom:6px}
+.row{display:flex;gap:10px;margin-top:12px;align-items:center}
+.row .lbl{width:52px;text-align:right}
+button{font-size:17px;padding:11px 18px;border-radius:12px;border:1px solid #33406a;background:#161e38;color:#e8ecf8}
+button.on{background:#7aa2ff;color:#0b1020;border-color:#7aa2ff;font-weight:700}
+#set{position:fixed;inset:0;background:#0b1020;padding:calc(env(safe-area-inset-top) + 16px) 20px 30px;display:none;overflow:auto}
+#set h2{margin:0 0 18px}.f{display:flex;justify-content:space-between;align-items:center;padding:14px 0;border-bottom:1px solid #1f2847;font-size:17px}
+select{font-size:17px;background:#161e38;color:#e8ecf8;border:1px solid #33406a;border-radius:10px;padding:8px}
+.note{color:#8a93b3;font-size:14px;line-height:1.4;margin-top:14px}
+</style></head><body>
+<button id="gear" style="position:absolute;right:14px;top:calc(env(safe-area-inset-top) + 12px);padding:8px 12px">⚙︎</button>
+<div class="top"><div><div class="lbl">Now</div><div class="big" id="now">--:--</div></div>
+<div><div class="lbl">Wake at</div><div class="big" id="wake">05:00</div></div></div>
+<svg id="dial" viewBox="0 0 400 400">
+ <circle cx="200" cy="200" r="150" fill="#121a33" stroke="#26304f" stroke-width="34"/>
+ <g id="ticks"></g>
+ <path id="arc" fill="none" stroke-width="34" stroke-linecap="round"/>
+ <circle id="nowDot" r="15" fill="#e8ecf8"/><text id="nowIcon" font-size="16" text-anchor="middle" dominant-baseline="central">🌙</text>
+ <circle id="knob" r="24" fill="#fff" stroke="#7aa2ff" stroke-width="5" style="cursor:grab"/><text id="knobIcon" font-size="18" text-anchor="middle" dominant-baseline="central" pointer-events="none">⏰</text>
+ <text x="200" y="192" text-anchor="middle" fill="#8a93b3" font-size="14">sleep if you go now</text>
+ <text id="mid" x="200" y="222" text-anchor="middle" fill="#e8ecf8" font-size="30" font-weight="700"></text>
+</svg>
+<div class="sleep" id="sleep">-</div>
+<div class="status" id="status"></div>
+<div id="bedby" style="font-size:16px;text-align:center;margin:4px 0 6px"></div>
+<div class="row"><button id="minus">−</button><button id="reset">05:00</button><button id="plus">+</button></div>
+<div class="row lbl" style="gap:14px"><span class="short" id="k1"></span><span class="mid" id="k2"></span><span class="ok" id="k3"></span></div>
+<div id="set"><div style="display:flex;justify-content:space-between;align-items:center"><h2>Settings</h2><button id="done">Done</button></div>
+<div class="f"><span><span class="short">●</span> Minimum sleep</span><select id="b1"></select></div>
+<div class="f"><span><span class="ok">●</span> Target sleep</span><select id="b2"></select></div>
+<div class="f"><span>Fall-asleep buffer</span><input type="checkbox" id="buf" style="width:28px;height:28px"></div>
+<div class="f"><span>Buffer minutes</span><select id="bufMin"></select></div>
+<div class="f"><span>Default wake time</span><select id="defWake"></select></div>
+<div class="f"><span>Default bedtime</span><select id="bed"></select></div>
+<div class="f"><span>Bedtime reminder</span><input type="checkbox" id="notify" style="width:28px;height:28px"></div>
+<button id="ics" style="width:100%;margin-top:14px">Add daily bedtime alarm to Calendar</button>
+<div class="note">Red is below your minimum, orange is below target, green is target or more. The buffer is taken off your sleep total. The bedtime reminder adds a repeating event with an alert to your iPhone Calendar, so it goes off even when this page is closed.</div></div>
+<script>
+const $=id=>document.getElementById(id),p=n=>String(n).padStart(2,'0');
+const S=JSON.parse(localStorage.getItem('sleepcalc')||'{}');
+const st=Object.assign({b1:360,b2:420,defWake:300,bed:1350,notify:false,buf:false,bufMin:15},JSON.parse(localStorage.getItem('sleepcalc-settings')||'{}'));
+const saveSt=()=>localStorage.setItem('sleepcalc-settings',JSON.stringify(st));
+let wake=Math.round((S.wake??st.defWake)/5)*5;const snap=5;
+const MIN=0,MAX=720,C=200,R=150;
+const fake=new URLSearchParams(location.search).get('now');
+const save=()=>localStorage.setItem('sleepcalc',JSON.stringify({wake}));
+const fmt=m=>p(Math.floor(m/60)%24)+':'+p(m%60);
+const fmtD=m=>((m>=60?Math.floor(m/60)+'h ':'')+(m%60||m<60?(m%60)+'m':'')).trim();
+const pt=(min,r=R)=>{const a=min/1440*2*Math.PI;return[C+r*Math.sin(a),C-r*Math.cos(a)]};
+// ticks
+let t='';for(let h=0;h<24;h++){const[x1,y1]=pt(h*60,118),[x2,y2]=pt(h*60,h%6?124:128);
+ t+=`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#4a5580" stroke-width="${h%6?1.5:2.5}"/>`;
+ if(h%3==0){const[x,y]=pt(h*60,102);t+=`<text x="${x}" y="${y}" fill="${h%6?'#6b7499':'#c7cde6'}" font-size="${h%6?11:13}" text-anchor="middle" dominant-baseline="central">${p(h)}</text>`}}
+$('ticks').innerHTML=t;
+function nowSec(){if(fake){const[h,m]=fake.split(':').map(Number);return h*3600+m*60}
+ const d=new Date();return d.getHours()*3600+d.getMinutes()*60+d.getSeconds()}
+function render(){
+ const ns=nowSec(),nm=Math.floor(ns/60);
+ let diff=wake*60-ns;if(diff<=0)diff+=86400;const B=st.buf?st.bufMin:0,m=Math.max(0,Math.floor(diff/60)-B),band=m<st.b1?'short':m<st.b2?'mid':'ok',col={short:'#ff5a5f',mid:'#ffa53d',ok:'#3ddc84'}[band];
+ $('now').textContent=fmt(nm);$('wake').textContent=fmt(wake);
+ const[ax,ay]=pt(nm),[bx,by]=pt(wake),large=m>720?1:0;
+ $('arc').setAttribute('d',`M${ax} ${ay} A${R} ${R} 0 ${large} 1 ${bx} ${by}`);
+ $('arc').setAttribute('stroke',col);
+ for(const id of['nowDot','nowIcon']){$(id).setAttribute(id=='nowDot'?'cx':'x',ax);$(id).setAttribute(id=='nowDot'?'cy':'y',ay)}
+ for(const id of['knob','knobIcon']){$(id).setAttribute(id=='knob'?'cx':'x',bx);$(id).setAttribute(id=='knob'?'cy':'y',by)}
+ $('sleep').textContent=Math.floor(m/60)+'h '+p(m%60)+'m';
+ $('sleep').className='sleep '+band;
+ $('status').className='status '+band;
+ $('status').textContent={short:'Below minimum, short by '+fmtD(st.b1-m),mid:'Below target, '+fmtD(st.b2-m)+' to go',ok:'Target reached'}[band];$('mid').textContent=fmtD(m);$('bedby').innerHTML='Go to bed by <b class=short>'+fmt((wake-st.b1-B+2880)%1440)+'</b> for minimum, <b class=ok>'+fmt((wake-st.b2-B+2880)%1440)+'</b> for target'+(B?' <span class=lbl>(incl. '+B+'m to fall asleep)</span>':'');$('k1').textContent='● below minimum ('+fmtD(st.b1)+')';$('k2').textContent='● below target';$('k3').textContent='● target ('+fmtD(st.b2)+')+';$('reset').textContent=fmt(st.defWake);
+ }
+const setWake=v=>{wake=Math.min(MAX,Math.max(MIN,Math.round(v/snap)*snap));save();render()};
+// drag
+const svg=$('dial');let drag=false;
+function fromEvt(e){const r=svg.getBoundingClientRect(),x=(e.clientX-r.left)/r.width*400-C,y=(e.clientY-r.top)/r.height*400-C;
+ let a=Math.atan2(x,-y);if(a<0)a+=2*Math.PI;let min=a/(2*Math.PI)*1440;
+ if(min>MAX)min=(min-MAX<1440-min)?MAX:MIN;
+ setWake(min)}
+svg.addEventListener('pointerdown',e=>{drag=true;svg.setPointerCapture(e.pointerId);fromEvt(e)});
+svg.addEventListener('pointermove',e=>{if(drag)fromEvt(e)});
+svg.addEventListener('pointerup',()=>drag=false);svg.addEventListener('pointercancel',()=>drag=false);
+$('minus').onclick=()=>setWake(wake-snap);$('plus').onclick=()=>setWake(wake+snap);$('reset').onclick=()=>setWake(st.defWake);
+const opts=(id,from,to,step,f)=>{let h='';for(let v=from;v<=to;v+=step)h+=`<option value="${v}">${f(v)}</option>`;$(id).innerHTML=h;$(id).value=st[id];$(id).onchange=e=>{st[id]=+e.target.value;if(st.b2<=st.b1)st.b2=st.b1+15,$('b2').value=st.b2;saveSt();render();showIcs()}};
+opts('b1',180,600,15,fmtD);opts('b2',195,720,15,fmtD);opts('bufMin',5,60,5,v=>v+' min');$('buf').checked=st.buf;$('buf').onchange=e=>{st.buf=e.target.checked;saveSt();render()};opts('defWake',0,720,5,fmt);opts('bed',0,1435,5,fmt);
+const showIcs=()=>$('ics').style.display=st.notify?'block':'none';
+$('notify').checked=st.notify;$('notify').onchange=e=>{st.notify=e.target.checked;saveSt();showIcs()};showIcs();
+$('gear').onclick=()=>$('set').style.display='block';$('done').onclick=()=>$('set').style.display='none';
+$('ics').onclick=()=>{const d=new Date(),ds=d.getFullYear()+p(d.getMonth()+1)+p(d.getDate()),t=p(Math.floor(st.bed/60))+p(st.bed%60)+'00';
+ const ics=['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//SleepCalc//EN','BEGIN:VEVENT','UID:sleepcalc-bedtime@local','DTSTAMP:'+ds+'T000000Z','DTSTART;TZID=Europe/London:'+ds+'T'+t,'DURATION:PT5M','RRULE:FREQ=DAILY','SUMMARY:Bedtime','BEGIN:VALARM','ACTION:DISPLAY','DESCRIPTION:Time for bed','TRIGGER:PT0M','END:VALARM','END:VEVENT','END:VCALENDAR'].join('\r\n');
+ const a=document.createElement('a');a.href='data:text/calendar;charset=utf-8,'+encodeURIComponent(ics);a.download='bedtime.ics';a.click()};
+if(new URLSearchParams(location.search).has('settings'))$('set').style.display='block';
+if('serviceWorker' in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('sw.js');
+render();setInterval(render,1000);
+</script></body></html>
